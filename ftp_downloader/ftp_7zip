@@ -1,0 +1,111 @@
+#!/bin/bash
+#
+# /root/ftp_7zip -7z fa_S12 2019 01 03 00
+#
+
+disk_path='/srv/ftp'
+
+7zip() {
+    comp=$1
+    orig=$2
+    7za a -t7z -m0=lzma -mx=9 -mfb=258 -md=32m -ms=on $comp $orig
+    rm $orig
+}
+
+fas12_zip() {
+    fas12_count=`wc -l < /tmp/zip/fa_S12/$year$month$day-$run.txt`
+    if [ "$fas12_count" = "72" ]; then
+        count=0
+        until [ "$count" = "$fas12_count" ]
+        do
+            count=`expr $count + 1`
+            line_fas12_file=`awk "NR==$count {print}" /tmp/zip/fa_S12/$year$month$day-$run.txt`
+            7zip $disk_path/$year/$month/$day/fa/$run/S12/$line_fas12_file.7z $disk_path/$year/$month/$day/fa/$run/S12/$line_fas12_file
+        done
+    else
+        echo "Number of files are not matching : " `date` >> $fa_log 2>&1
+        /root/ftp/ftp_sync -fa -r 00
+        break
+    fi
+}
+
+fa345_zip() {
+	fa345_count=`wc -l < /tmp/zip/fa_345/$year$month$day-$run.txt`
+	count=0
+	until [ "$count" = "$fa345_count" ]
+	do
+		count=`expr $count + 1`
+		line_fa345_file=`awk "NR==$count {print}" /tmp/zip/fa_345/$year$month$day-$run.txt`
+		7zip $disk_path/$year/$month/$day/fa/$run/345/$line_fa345_file.7z $disk_path/$year/$month/$day/fa/$run/345/$line_fa345_file
+	done
+}
+
+arm_zip() {
+    arm_count=`wc -l < /tmp/zip/arm/$year$month$day-$run.txt`
+    if [ "$arm_count" = "48" ]; then
+	    count=0
+	    until [ "$count" = "$arm_count" ]
+	    do
+	    count=`expr $count + 1`
+		    line_arm_file=`awk "NR==$count {print}" /tmp/zip/arm/$year$month$day-$run.txt`
+		    7zip $disk_path/$year/$month/$day/arm/$run/$line_arm_file.7z $disk_path/$year/$month/$day/arm/$run/$line_arm_file
+	    done
+    else
+        echo "Number of files are not matching : " `date` >> $arm_log 2>&1
+        /root/ftp/ftp_sync -arm -r 00
+        break
+    fi
+}
+
+wrf_zip() {
+	wrf_count=`wc -l < /tmp/zip/wrf/$year$month$day-$run.txt`
+    if [ "$wrf_count" = "73" ]; then
+	    count=0
+	    until [ "$count" = "$wrf_count" ]
+	    do
+	        count=`expr $count + 1`
+		    line_wrf_file=`awk "NR==$count {print}" /tmp/zip/wrf/$year$month$day-$run.txt`
+		    7zip $disk_path/$year/$month/$day/wrf/$run/$line_wrf_file.7z $disk_path/$year/$month/$day/wrf/$run/$line_wrf_file
+	    done
+    else
+        echo "Number of files are not matching : " `date` >> $wrf_log 2>&1
+        /root/ftp/ftp_sync -wrf -r 00
+        break
+    fi
+}
+
+case "$1" in
+    -7z|--7zip)
+    model=$2
+    year=$3
+    month=$4
+    day=$5
+    run=$6
+
+    if [ "$model" = "fa_S12" ]; then
+        ls -1 $disk_path/$year/$month/$day/fa/$run/S12 > /tmp/zip/fa_S12/$year$month$day-$run.txt
+        fas12_zip
+        sha256sum $disk_path/$year/$month/$day/fa/$run/S12/* > $disk_path/$year/$month/$day/fa/$run/S12/sha256sum.txt
+        /opt/ritm/sht-parser-trigger/virtualenv/bin/python3.6 /opt/ritm/sht-parser-trigger/parser_trigger.py -p /srv/ftp/ -m fa -r $run -f $year-$month-$day -w t
+    fi
+	if [ "$model" = "fa_345" ]; then
+		ls -1 $disk_path/$year/$month/$day/fa/$run/345 > /tmp/zip/fa_345/$year$month$day-$run.txt
+		fa345_zip
+		sha256sum $disk_path/$year/$month/$day/fa/$run/345/* > $disk_path/$year/$month/$day/fa/$run/345/sha256sum.txt
+	fi
+	if [ "$model" = "arm" ]; then
+		ls -1 $disk_path/$year/$month/$day/arm/$run > /tmp/zip/arm/$year$month$day-$run.txt
+		arm_zip
+		sha256sum $disk_path/$year/$month/$day/arm/$run/* > $disk_path/$year/$month/$day/arm/$run/sha256sum.txt
+		/opt/ritm/sht-parser-trigger/virtualenv/bin/python3.6 /opt/ritm/sht-parser-trigger/parser_trigger.py -p /srv/ftp/ -m arm -r $run -f $year-$month-$day -w t
+	fi
+	if [ "$model" = "wrf" ]; then
+		ls -1 $disk_path/$year/$month/$day/wrf/$run > /tmp/zip/wrf/$year$month$day-$run.txt
+		wrf_zip
+		sha256sum $disk_path/$year/$month/$day/wrf/$run/* > $disk_path/$year/$month/$day/wrf/$run/sha256sum.txt
+		if [ "$run" = "00" ]; then
+			/opt/ritm/sht-parser-trigger/virtualenv/bin/python3.6 /opt/ritm/sht-parser-trigger/parser_trigger.py -p /srv/ftp/ -m wrf -r $run -f $year-$month-$day -w t
+		fi
+	fi
+    ;;
+esac

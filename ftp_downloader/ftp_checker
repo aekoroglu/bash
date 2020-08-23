@@ -1,0 +1,135 @@
+#!/bin/bash
+#
+# MGM FTP File Checker
+#
+today=`date +"%Y%m%d"`
+mgm_path='/mnt/mgm-ftp'
+fa_log="/tmp/fa.log"
+arm_log="/tmp/arm.log"
+wrf_log="/tmp/wrf.log"
+mail="/bin/mail"
+mail_user="yyy@xxx.com"
+
+
+run_time() {
+    rt="$1"
+    if [[ ! -z $rt ]] ; then
+        if [[ $rt == "00" || $rt == "12" ]]; then
+            run=$rt
+        else
+            echo "Runtime parameter must be 00 or 12"
+            exit 0
+        fi
+    else
+        echo "Runtime parameter cannot be empty"
+        exit 0
+    fi
+}
+
+fa_check() {
+    prun=$1
+    for i in {1..18}; do
+        ls -1 $mgm_path/alr/$prun/rtm_tas_alr_*$today*.fa > /tmp/check/fa_$prun.txt
+        if [ $? -eq 0 ]; then
+            fa_count=`wc -l < /tmp/check/fa_$prun.txt`
+            if [ "$fa_count" = "144" ]; then
+                find $mgm_path/alr/$prun/*.fa -type f -size +5M > /tmp/check/fa_"$prun"_size.txt
+                fa_size_count=`wc -l < /tmp/check/fa_"$prun"_size.txt`
+                if [ "$fa_size_count" = "144" ]; then
+                    /root/ftp/ftp_sync -fa -r 00
+                    break
+                else
+                    echo "File sizes are not matching : " `date` >> $fa_log 2>&1
+                    sleep 600
+                fi
+            else
+                echo "Number of files are not matching : " `date` >> $fa_log 2>&1
+                sleep 600
+            fi
+        else
+            echo "No files found : " `date` >> $fa_log 2>&1
+            sleep 600
+        fi
+    done
+}
+
+arm_check() {
+    prun=$1
+    for i in {1..15}; do
+        ls -1 $mgm_path/arm/$prun/arm_100m_$today*.fa > /tmp/check/arm_$prun.txt
+        if [ $? -eq 0 ]; then
+            arm_count=`wc -l < /tmp/check/arm_$prun.txt`
+            if [ "$arm_count" = "48" ]; then
+                find $mgm_path/arm/$prun/*.fa -type f -size +2M > /tmp/check/arm_"$prun"_size.txt
+                arm_size_count=`wc -l < /tmp/check/arm_"$prun"_size.txt`
+                if [ "$arm_size_count" = "48" ]; then
+                    /root/ftp/ftp_sync -arm -r 00
+                    break
+                else
+                    echo "File sizes are not matching : " `date` >> $arm_log 2>&1
+                    sleep 600
+                fi
+            else
+                echo "Number of files are not matching : " `date` >> $arm_log 2>&1
+                sleep 600
+            fi
+        else
+            echo "No files found : " `date` >> $fa_log 2>&1
+            sleep 600
+        fi
+    done
+}
+
+wrf_check() {
+    prun=$1
+    for i in {1..7}; do
+        ls -1 $mgm_path/wrf/$prun/$today*.nc > /tmp/check/wrf_$prun.txt
+        if [ $? -eq 0 ]; then
+            wrf_count=`wc -l < /tmp/check/wrf_$prun.txt`
+            if [ "$wrf_count" = "73" ]; then
+                find $mgm_path/wrf/$prun/*.nc -type f -size +20M > /tmp/check/wrf_"$prun"_size.txt
+                wrf_size_count=`wc -l < /tmp/check/wrf_"$prun"_size.txt`
+                if [ "$wrf_size_count" = "73" ]; then
+                    /root/ftp/ftp_sync -wrf -r 00
+                    break
+                else
+                    echo "File sizes are not matching : " `date` >> $wrf_log 2>&1
+                    sleep 600
+                fi
+            else
+                echo "Number of files are not matching : " `date` >> $wrf_log 2>&1
+                sleep 600
+            fi
+        else
+            echo "No files found : " `date` >> $wrf_log 2>&1
+            sleep 600
+        fi
+    done
+}
+
+
+case "$1" in
+    -fa|--alora)
+        run_time $3
+        if [ "$run" = "12" ]; then
+            fa_check $run
+        else
+            fa_check $run
+        fi
+    ;;
+    -arm|--arome)
+        run_time $3
+        if [ "$run" = "12" ]; then
+            arm_check $run
+        else
+            arm_check $run
+        fi
+    ;;
+    -wrf|--wrf)
+        run_time $3
+        if [ "$run" = "12" ]; then
+            wrf_check $run
+        else
+            wrf_check $run
+        fi
+esac

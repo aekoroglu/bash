@@ -1,0 +1,85 @@
+#!/bin/bash
+#
+# Yet Another Mirroring Script by AEK @ 14.01.2009
+# ToDo:  Pid control for timeouts or internet connection failures.
+
+rsync="/usr/bin/rsync"
+mail="/bin/mail"
+sync_config="/root/rsync/conf/sync.conf"
+ftp_host=`cat $sync_config |grep host | cut -d '"' -f2`
+mail_user=`cat $sync_config |grep mail | cut -d '"' -f2`
+lockpath=`cat $sync_config |grep lockpath | cut -d '"' -f2`
+logpath=`cat $sync_config |grep logpath | cut -d '"' -f2`
+
+if [ "$sync_config" != "" ]
+        then
+                [ -f "$sync_config" ] || { echo -e "Error: Config file not found"; exit 1; }
+fi
+
+case "$1" in
+        -s|--sync)
+            syname="$2"
+            full_list=`cat $sync_config |grep lf| wc -l`
+            count=0
+            until [ "$count" = "$full_list" ]
+            do
+                    count=`expr $count + 1`
+                    loopname=`cat $sync_config |grep lf | awk "NR==$count {print}" | cut -d '"' -f2`
+                    if [ $loopname = $syname ]
+                        then
+                        syname_rsync_vars=`cat $sync_config | grep rsync_vars | awk "NR==$count {print}" | cut -d '"' -f2`
+                        syname_rsync_url=`cat $sync_config | grep rsync_url | awk "NR==$count {print}" | cut -d '"' -f2`
+                        syname_disk_path=`cat $sync_config | grep disk_path | awk "NR==$count {print}" | cut -d '"' -f2`
+                        syname_log="$logpath/$syname.log"
+                        if [ -f $lockpath/$syname ]
+                            then
+                            echo "$syname still in progress.."
+                        exit 0
+                        else
+                            touch $lockpath/$syname
+                            echo "$syname mirroring started at" `date` >> $syname_log 2>&1
+                            $rsync $syname_rsync_vars $syname_rsync_url $syname_disk_path >> $syname_log 2>&1
+                            echo "" >> $syname_log 2>&1
+                            echo "End: "`date` >> $syname_log 2>&1
+                            $mail -s "$ftp_host: $syname rsync report" "$mail_user" < $syname_log
+                        fi
+                        rm -f $syname_log $lockpath/$syname
+                        exit 0
+                    else
+                        if [ "$count" = "$full_list" ]
+                        then
+                                echo "$syname is not in the list, please check neu-sync --list"
+                        fi
+                    fi
+            done
+            ;;
+        -l|--list)
+                echo ""
+                echo " Mirroring List"
+                echo ""
+                full_list=`cat $sync_config |grep lf| wc -l`
+                count=0
+                until [ "$count" = "$full_list" ]
+                do
+                        count=`expr $count + 1`
+                        loopname=`cat $sync_config |grep lf | awk "NR==$count {print}" | cut -d '"' -f2`
+                        echo "  $loopname"
+                done
+                echo ""
+                ;;
+        -h|--help)
+                echo "Yamiros version 1.0.1 by Ali Erdinc Köroglu"
+                echo ""
+                echo "Yamiros is a yet another mirroring script program capable of efficient remote update"
+                echo "via a fast differencing algorithm by using rsync."
+                echo ""
+                echo "  Usage: yamiros [OPTION] sync-name"
+                echo "  -s, --sync              Synchronize parameter"
+                echo "  -l, --list              Available mirroring names list"
+                echo "  -h, --help              Show this help"
+                echo ""
+                ;;
+        *)
+        echo $"Usage: yamiros --sync {syncname} or --list for the syncname list"
+        exit 1
+esac

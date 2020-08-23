@@ -1,0 +1,15 @@
+#!/bin/bash
+echo "Merhaba dünya"
+mecnun="leyla"
+
+if [ "$mecnun" != "leyla" ]; then
+        echo "Mecnun leyla değilmiş.. :("
+else
+        echo "İşte bu.. Leylaaaaaa"
+        sayac=0
+        until [ $sayac -eq 10 ]
+        do
+                ((sayac=sayac+1))
+                echo $sayac
+        done
+fi

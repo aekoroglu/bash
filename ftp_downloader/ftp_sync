@@ -1,0 +1,197 @@
+#!/bin/bash
+today=`date +"%Y%m%d"`
+mgm_path='/mnt/mgm-ftp'
+disk_path='/srv/ftp'
+log_path='/var/log/'
+zipper='/root/ftp/ftp_7zip'
+
+mail="/bin/mail"
+mail_user="yyy@xxx.com"
+
+run_time() {
+    rt="$1"
+    if [[ ! -z $rt ]] ; then
+        if [[ $rt == "00" || $rt == "12" ]]; then
+            run=$rt
+        else
+            echo "Runtime parameter must be 00 or 12"
+            exit 0
+        fi
+    else
+        echo "Runtime parameter cannot be empty"
+        exit 0
+    fi
+}
+
+check_dir() {
+    model=$1
+    run=$2
+    if [ ! -d "$disk_path/$file_year/$file_month" ]; then
+        mkdir $disk_path/$file_year/$file_month
+	chown -R ritm:ritm $disk_path/$file_year/$file_month
+    fi
+    
+    if [ ! -d "$disk_path/$file_year/$file_month/$file_day" ]; then
+        mkdir $disk_path/$file_year/$file_month/$file_day
+	chown -R ritm:ritm $disk_path/$file_year/$file_month/$file_day
+    fi
+    
+    if [ ! -d "$disk_path/$file_year/$file_month/$file_day/$model" ]; then
+        mkdir $disk_path/$file_year/$file_month/$file_day/$model
+	chown -R ritm:ritm $disk_path/$file_year/$file_month/$file_day/$model
+    fi
+    
+    if [ ! -d "$disk_path/$file_year/$file_month/$file_day/$model/$run" ]; then
+        mkdir $disk_path/$file_year/$file_month/$file_day/$model/$run
+	chown -R ritm:ritm $disk_path/$file_year/$file_month/$file_day/$model/$run
+    fi
+    
+    if [ "$model" = "fa" ] && [ ! -d "$disk_path/$file_year/$file_month/$file_day/$model/$run/S12" ]; then
+        mkdir $disk_path/$file_year/$file_month/$file_day/$model/$run/S12
+	chown -R ritm:ritm $disk_path/$file_year/$file_month/$file_day/$model/$run/S12
+    fi
+
+    if [ "$model" = "fa" ] && [ ! -d "$disk_path/$file_year/$file_month/$file_day/$model/$run/345" ]; then
+        mkdir $disk_path/$file_year/$file_month/$file_day/$model/$run/345
+	chown -R ritm:ritm $disk_path/$file_year/$file_month/$file_day/$model/$run/345
+    fi
+}
+
+fa_parse() {
+    prun=$1
+    fa_masterlog="$log_path/mgm-ftp_fa.log"
+    fa_log="/tmp/fa.log"
+    echo "Download started at" `date` >> $fa_log 2>&1
+    fa_start=$(date +%s);
+    ls -1 $mgm_path/alr/$prun/*.fa > /tmp/alr_$prun.txt
+    alr_count=`wc -l < /tmp/alr_$prun.txt`
+    count=0
+    until [ "$count" = "$alr_count" ]
+    do
+        count=`expr $count + 1`
+        line_alr=`awk "NR==$count {print}" /tmp/alr_$prun.txt`
+        file_year=`echo $line_alr | cut -d '_' -f5 | cut -d '.' -f1| awk '{print substr($0,0,4)}'`
+        file_month=`echo $line_alr | cut -d '_' -f5 | cut -d '.' -f1| awk '{print substr($0,5,2)}'`
+        file_day=`echo $line_alr | cut -d '_' -f5 | cut -d '.' -f1| awk '{print substr($0,7,2)}'`
+        file_type=`echo $line_alr | cut -d '_' -f4| awk '{print substr($0,0,3)}'`
+        file_hour=`echo $line_alr | cut -d '_' -f4| awk '{print substr($0,4,4)}'`
+        if [ "$file_hour" = "01" ]; then
+            file_hour2="00"
+        else
+            file_hour22=`expr $file_hour - 1`
+            printf -v file_hour2 "%02d" $file_hour22
+        fi
+        check_dir fa $prun
+        cp -v $line_alr $disk_path/$file_year/$file_month/$file_day/fa/$prun/${file_type^}/$file_year$file_month$file_day'_fa_'${file_type^}'_'$prun'_'$file_hour2'.fa' >> $fa_log 2>&1
+    done
+    fa_end=$(date +%s);
+    echo "End: "`date` >> $fa_log 2>&1
+    fa_total=`echo $((fa_end-fa_start)) | awk '{printf "%d:%02d:%02d", $1/3600, ($1/60)%60, $1%60}'`
+    echo "Total download time:" $fa_total >> $fa_log 2>&1
+    echo "" >> $fa_log 2>&1
+    $mail -S smtp=smtp://xxxx -S from="xxx@xxx" -s "MGM-FTP FA Download Report" "$mail_user" < $fa_log
+    cat $fa_log >> $fa_masterlog
+    rm $fa_log
+    rm /tmp/alr_$prun.txt
+    $zipper -7z fa_S12 $file_year $file_month $file_day $prun
+    $zipper -7z fa_345 $file_year $file_month $file_day $prun
+    chown -R ritm:ritm $disk_path/$file_year/$file_month/$file_day/fa
+}
+
+arm_parse() {
+    prun=$1
+    arm_masterlog="$log_path/mgm-ftp_arm.log"
+    arm_log="/tmp/arm.log"
+    echo "Download started at" `date` >> $arm_log 2>&1
+    arm_start=$(date +%s);
+    ls -1 $mgm_path/arm/$prun/*.fa > /tmp/arm_$prun.txt
+    arm_count=`wc -l < /tmp/arm_$prun.txt`
+    count=0
+    until [ "$count" = "$arm_count" ]
+    do
+        count=`expr $count + 1`
+        line_arm=`awk "NR==$count {print}" /tmp/arm_$prun.txt`
+        file_year=`echo $line_arm | cut -d '_' -f3 | awk '{print substr($0,0,4)}'`
+	    file_month=`echo $line_arm | cut -d '_' -f3 | awk '{print substr($0,5,2)}'`
+        file_day=`echo $line_arm | cut -d '_' -f3 | awk '{print substr($0,7,2)}'`
+        file_hour=`echo $line_arm | cut -d '_' -f4| cut -d '.' -f1`
+        if [ "$file_hour" = "01" ]; then
+            file_hour2="00"
+        else
+            file_hour22=`expr $file_hour - 1`
+            printf -v file_hour2 "%02d" $file_hour22
+        fi
+        check_dir arm $prun
+        cp -v $line_arm $disk_path/$file_year/$file_month/$file_day/arm/$prun/$file_year$file_month$file_day'_arm_'$prun'_'$file_hour2.fa >> $arm_log 2>&1
+    done
+    arm_end=$(date +%s);
+    echo "End: "`date` >> $arm_log 2>&1
+    arm_total=`echo $((arm_end-arm_start)) | awk '{printf "%d:%02d:%02d", $1/3600, ($1/60)%60, $1%60}'`
+    echo "Total download time:" $arm_total >> $arm_log 2>&1
+    echo "" >> $arm_log 2>&1
+    $mail -S smtp=smtp://xxxx -S from="xxx@xxx" -s "MGM-FTP ARM Download Report" "$mail_user" < $arm_log
+    cat $arm_log >> $arm_masterlog
+    rm $arm_log
+    rm /tmp/arm_$prun.txt
+    $zipper -7z arm $file_year $file_month $file_day $prun
+    chown -R ritm:ritm $disk_path/$file_year/$file_month/$file_day/arm
+}
+
+wrf_parse() {
+    prun=$1
+    wrf_masterlog="$log_path/mgm-ftp_wrf.log"
+    wrf_log="/tmp/wrf.log"
+    echo "Download started at" `date` >> $wrf_log 2>&1
+    wrf_start=$(date +%s);
+    ls -1 $mgm_path/wrf/$prun/*.nc > /tmp/wrf_$prun.txt
+    wrf_count=`wc -l < /tmp/wrf_$prun.txt`
+    count=0
+    until [ "$count" = "$wrf_count" ]
+    do
+        count=`expr $count + 1`
+        line_wrf=`awk "NR==$count {print}" /tmp/wrf_$prun.txt`
+        file_year=`echo $line_wrf | cut -d '/' -f6 | awk '{print substr($0,0,4)}'`
+        file_month=`echo $line_wrf | cut -d '/' -f6 | awk '{print substr($0,5,2)}'`
+        file_day=`echo $line_wrf | cut -d '/' -f6 | awk '{print substr($0,7,2)}'`
+        file_hour=`echo $line_wrf | cut -d '/' -f6 | awk '{print substr($0,11,2)}'`
+        check_dir wrf $prun
+        cp -v $line_wrf $disk_path/$file_year/$file_month/$file_day/wrf/$prun/$file_year$file_month$file_day'_wrf_'$prun'_'$file_hour.nc >> $wrf_log 2>&1
+    done
+    wrf_end=$(date +%s);
+    echo "End: "`date` >> $wrf_log 2>&1
+    wrf_total=`echo $((wrf_end-wrf_start)) | awk '{printf "%d:%02d:%02d", $1/3600, ($1/60)%60, $1%60}'`
+    echo "Total download time:" $wrf_total >> $wrf_log 2>&1
+    echo "" >> $wrf_log 2>&1
+    $mail -S smtp=smtp://xxxx -S from="xxx@xxx" -s "MGM-FTP WRF Download Report" "$mail_user" < $wrf_log
+    cat $wrf_log >> $wrf_masterlog
+    rm $wrf_log
+    rm /tmp/wrf_$prun.txt
+    $zipper -7z wrf $file_year $file_month $file_day $prun
+    chown -R ritm:ritm $disk_path/$file_year/$file_month/$file_day/wrf
+}
+
+case "$1" in
+    -fa|--alora)
+        run_time $3
+        if [ "$run" = "12" ]; then
+            fa_parse $run
+        else
+            fa_parse $run
+        fi
+    ;;
+    -arm|--arome)
+        run_time $3
+        if [ "$run" = "12" ]; then
+            arm_parse $run
+        else
+            arm_parse $run
+        fi
+    ;;
+    -wrf|--wrf)
+        run_time $3
+        if [ "$run" = "12" ]; then
+            wrf_parse $run
+        else
+            wrf_parse $run
+        fi
+esac

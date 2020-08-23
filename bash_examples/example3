@@ -1,0 +1,2 @@
+#!/bin/bash
+find /srv/backup -mtime +1 -type f -delete

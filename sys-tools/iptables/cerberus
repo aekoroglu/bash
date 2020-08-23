@@ -1,0 +1,122 @@
+#!/bin/bash
+IPTABLES=/sbin/iptables
+MODPROBE=/sbin/modprobe
+
+# eth0 - localnet / eth1 - internet / eth2 - neunet
+
+LOCAL_NET=10.10.0.0/255.255.240.0
+INTERNET=212.175.35.30
+NEU=212.175.151.129/255.255.255.224
+LOCAL=10.10.10.1
+
+clear
+echo ""
+echo " Cerberus Firewall"
+echo " written by Ali Erdinç Köroğlu"
+echo ""
+$IPTABLES -F
+$IPTABLES -F -t nat
+$IPTABLES -X
+$IPTABLES -P INPUT DROP
+$IPTABLES -P OUTPUT DROP
+$IPTABLES -P FORWARD DROP
+
+echo "[x] Loading modules.."
+$MODPROBE ip_conntrack_ftp
+$MODPROBE ip_nat_ftp
+
+#echo "[x] Pre-routing.."
+#$IPTABLES -t nat -A PREROUTING -i eth1 -p tcp --dport 3389 -j DNAT --to-destination 10.10.9.249:3389
+#$IPTABLES -t nat -A PREROUTING -p tcp --dport 80 -s $LOCAL -j RETURN
+#$IPTABLES -t nat -A PREROUTING -p tcp --dport 80 -i eth0 -s $LOCAL_NET -j REDIRECT --to-ports 8080
+#$IPTABLES -t nat -A PREROUTING -p tcp -i eth1 --dport 3389 -j DNAT --to 10.10.9.249
+#$IPTABLES -t nat -A PREROUTING -j LOG --log-prefix "DPT=3389 "
+
+echo "[x] INPUTz..."
+$IPTABLES -A INPUT -m state --state INVALID -j DROP
+$IPTABLES -A INPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
+# ---- antispoofing ----
+$IPTABLES -A INPUT -i eth0 -s ! $LOCAL_NET -j DROP
+# ---- Dropping Multicast Packets ----
+$IPTABLES -A INPUT -i eth0 -d 224.0.0.0/8 -j DROP
+$IPTABLES -A INPUT -i eth1 -d 224.0.0.0/8 -j DROP
+$IPTABLES -A INPUT -i eth2 -d 224.0.0.0/8 -j DROP
+# ---- loopback ----
+$IPTABLES -A INPUT  -s 127.0.0.1  -m state --state NEW -j ACCEPT
+# ----	accept ----
+$IPTABLES -A INPUT -p tcp -m tcp -m multiport --dports 22,80 -m state --state NEW -j ACCEPT
+$IPTABLES -A INPUT -p udp -s $LOCAL_NET --dport 53 -m state --state NEW -j ACCEPT
+$IPTABLES -A INPUT -i eth0 -p udp -s $LOCAL_NET --dport 67  -m state --state NEW -j ACCEPT
+#$IPTABLES -A INPUT -i eth0 -p tcp -s $LOCAL_NET --dport 8080 -m state --state NEW -j ACCEPT
+
+
+echo "[x] Blocking rapidshare etc.."
+for ip in `</root/firewall/block.txt`; do
+        $IPTABLES -A OUTPUT -d $ip -j DROP
+done
+
+
+echo "[x] OUTPUTz..."
+# Log everything
+#$IPTABLES -I OUTPUT 1 -j LOG
+#$IPTABLES -A OUTPUT -m state --state INVALID -j LOG --log-level 3 --log-prefix "OUTPUT DROP INVALID " --log-ip-options --log-tcp-options
+$IPTABLES -A OUTPUT -m state --state INVALID -j DROP
+$IPTABLES -A OUTPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
+# ---- FW reach everywhere ----
+$IPTABLES -A OUTPUT -s $INTERNET -m state --state NEW -j ACCEPT
+$IPTABLES -A OUTPUT -o eth0 -d $LOCAL_NET -m state --state NEW -j ACCEPT
+$IPTABLES -A OUTPUT -o eth2 -m iprange --dst-range 212.175.151.130-212.175.151.158 -m state --state NEW -j ACCEPT
+$IPTABLES -A OUTPUT -s 127.0.0.1  -m state --state NEW -j ACCEPT
+# ----	accept ----
+$IPTABLES -A OUTPUT -p tcp -m tcp -m multiport --dports 20,21,22,80,110,443,465,587,873,993,995 -m state --state NEW -j ACCEPT
+$IPTABLES -A OUTPUT -p tcp -m tcp -m multiport --dports 1863,3389,5222,5223,5900 -m state --state NEW -j ACCEPT
+$IPTABLES -A OUTPUT -p tcp -s $LOCAL_NET -d mail.neu.edu.tr --dport 25 -m state --state NEW -j ACCEPT
+$IPTABLES -A OUTPUT -p udp -d $LOCAL --dport 53 -m state --state NEW -j ACCEPT
+$IPTABLES -A OUTPUT -p udp -d time.neu.edu.tr --dport 123 -m state --state NEW -j ACCEPT
+# ---- 	neu-library ----
+$IPTABLES -A OUTPUT -p tcp -m tcp -m multiport -d library.neu.edu.tr --dports 2048,4000,8080 -m state --state NEW -j ACCEPT
+$IPTABLES -A OUTPUT -p tcp -m tcp -m multiport -m iprange --src-range 10.10.9.250-10.10.9.252 -d library.neu.edu.tr --dports 5901,5902 -m state --state NEW -j ACCEPT
+# ----	hacettepe & ankara proxy ----
+$IPTABLES -A OUTPUT -p tcp -s $LOCAL_NET -d proxy.hacettepe.edu.tr --dport 8080 -m state --state NEW -j ACCEPT
+$IPTABLES -A OUTPUT -p tcp -s $LOCAL_NET -d lembas.medinfo.hacettepe.edu.tr --dport 8080 -m state --state NEW -j ACCEPT
+$IPTABLES -A OUTPUT -p tcp -s $LOCAL_NET -d proxy.ankara.edu.tr --dport 3120 -m state --state NEW -j ACCEPT
+# ---- Hospital ----
+$IPTABLES -A OUTPUT -p tcp -m tcp -m multiport -d 212.175.35.15 --dports 20,21,23,5042 -m state --state NEW -j ACCEPT
+
+
+#echo "[x] Allowed HTTPS Out..."
+#for ip2 in `</root/firewall/https-ip.txt`; do
+#        $IPTABLES -A OUTPUT -p tcp -s $LOCAL_NET -d $ip2 --dport 443 -m state --state NEW -j ACCEPT
+#done
+
+
+echo "[x] FORWARDz..."
+# Log everything
+#$IPTABLES -I FORWARD 1 -j LOG
+#$IPTABLES -A FORWARD -m state --state INVALID -j LOG --log-level 3 --log-prefix "FORWARD DROP INVALID " --log-ip-options --log-tcp-options
+$IPTABLES -A FORWARD -m state --state INVALID -j DROP
+$IPTABLES -A FORWARD -m state --state ESTABLISHED,RELATED -j ACCEPT
+
+# ---- antispoofing ----
+$IPTABLES -A FORWARD -i eth0 -s ! $LOCAL_NET -j DROP
+# ----	accept ----
+$IPTABLES -A FORWARD -p tcp -m tcp -m multiport --dports 20,21,22,80,110,443,465,587,873,993,995 -m state --state NEW -j ACCEPT
+$IPTABLES -A FORWARD -p tcp -m tcp -m multiport --dports 1863,3389,5222,5223,5900 -m state --state NEW -j ACCEPT
+$IPTABLES -A FORWARD -p tcp -s $LOCAL_NET -d mail.neu.edu.tr --dport 25 -m state --state NEW -j ACCEPT
+$IPTABLES -A FORWARD -p udp -d $LOCAL --dport 53 -m state --state NEW -j ACCEPT
+$IPTABLES -A FORWARD -p udp -d time.neu.edu.tr --dport 123 -m state --state NEW -j ACCEPT
+# ----	neu-library ----
+$IPTABLES -A FORWARD -p tcp -m tcp -m multiport -d library.neu.edu.tr --dports 2048,4000,8080 -m state --state NEW -j ACCEPT
+$IPTABLES -A FORWARD -p tcp -m tcp -m multiport -m iprange --src-range 10.10.9.250-10.10.9.252 -d library.neu.edu.tr --dports 5901,5902 -m state --state NEW -j ACCEPT
+# ----	hacettepe & ankara proxy ----
+$IPTABLES -A FORWARD -p tcp -s $LOCAL_NET -d proxy.hacettepe.edu.tr --dport 8080 -m state --state NEW -j ACCEPT
+$IPTABLES -A FORWARD -p tcp -s $LOCAL_NET -d lembas.medinfo.hacettepe.edu.tr --dport 8080 -m state --state NEW -j ACCEPT
+$IPTABLES -A FORWARD -p tcp -s $LOCAL_NET -d proxy.ankara.edu.tr --dport 3120 -m state --state NEW -j ACCEPT
+# ---- Hospital ----
+$IPTABLES -A FORWARD -p tcp -m tcp -m multiport -d 212.175.35.15 --dports 20,21,23,5042 -m state --state NEW -j ACCEPT
+
+
+echo "[x] NAT nat nat chokonat.."
+$IPTABLES -t nat -A POSTROUTING -s $LOCAL_NET -o eth1 -j MASQUERADE
+$IPTABLES -t nat -A POSTROUTING -s $LOCAL_NET -m iprange --dst-range 212.175.151.130-212.175.151.158 -o eth2 -j MASQUERADE
+echo ""
