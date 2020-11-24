@@ -8,3 +8,4 @@ Neverland
 - sys-tools
   - Iptables (firewall script)
   - Yamiros (Rsync controller)
+- thumbor_sec_url (A microservice to prepare safe thumbor url)
