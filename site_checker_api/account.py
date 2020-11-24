@@ -1,11 +1,12 @@
-import falcon, json, requests, tldextract, datetime, sys
+import falcon, json, requests, tldextract, datetime, sys, os
 from requests.exceptions import HTTPError
 from requests.exceptions import Timeout
 from requests.exceptions import SSLError
 import os.path as path
 from slack import send_slack_msg
 
-req_count = 0
+sfy_user = os.environ["SFY_USER"]
+sfy_pass = os.environ["SFY_PASS"]
 
 class ObjReqClass:
     __json_content = {}
@@ -20,15 +21,15 @@ class ObjReqClass:
             return False
 
     def __get_list(self,version):
-        data = {'username': 'xxxx','password': 'xxxx'}
+        data = {'username': sfy_user,'password': sfy_pass}
 
         if version == 'v1':
-            token_url = 'https://xxx.xxx.com/getToken'
-            acc_list = 'https://xxx.xxx.com/admin/v1/get/account/list.json'
+            token_url = 'https://y1.xxxx.com/getToken'
+            acc_list = 'https://y1.xxxx.com/admin/v1/get/account/list.json'
             json_file = 'data/list1.json'
         else:
-            token_url = 'https://xxx.xxx.com/getToken'
-            acc_list = 'https://xxx.xxx.com/admin/v1/get/account/list.json'
+            token_url = 'https://y.xxxx.com/getToken'
+            acc_list = 'https://y.xxxx.com/admin/v1/get/account/list.json'
             json_file = 'data/list3.json'
 
         try:
@@ -56,9 +57,10 @@ class ObjReqClass:
         self.__get_list('v1')
         with open('data/list1.json') as json_file:
             data = json.load(json_file)
+            dc = 'pk'
             for i in data:
                 if i['accountId'] == account_id:
-                    return i['apiKey'],i['domain'],i['type'],i['features'].get("push")
+                    return i['apiKey'],i['domain'],i['type'],i['features'].get("push"),dc
 
     def __v3_acc(self,account_id):
         self.__get_list('v3')
@@ -66,16 +68,19 @@ class ObjReqClass:
             data = json.load(json_file)
             for i in data:
                 if i['accountId'] == account_id:
-                    return i['apiKey'],i['domain'],i['type'],i['features'].get("push")
+                    if i['features'].get("push") == "ACTIVE":
+                        return i['apiKey'],i['domain'],i['type'],i['features'].get("push"),i['dataCenter'],i['pushConfiguration']['webConfiguration'].get('serviceWorkerPath')
+                    else:
+                        return i['apiKey'],i['domain'],i['type'],i['features'].get("push"),i['dataCenter']
 
-    def __selenium(self,account_id,apikey,url):
+    def __selenium(self,account_id,apikey,url,dc):
         try:
-            if req_count == 1:
-                selen = "http://10.156.0.17:8000/selenium"
-            elif req_count == 2:
-                selen = "http://10.156.0.18:8000/selenium"
+            if dc == 'tr':
+                selen = "http://192.168.0.0:8000/selenium"
+            elif dc == 'eu':
+                selen = "http://10.154.0.0:8000/selenium"
             else:
-                selen = "http://10.156.0.19:8000/selenium"
+                selen = "http://10.156.0.0:8000/selenium"
             data = {'account_id': account_id,'apikey': apikey, 'url': url}
             r = requests.post(url=selen, json=data, headers={'Content-type':'application/json', 'Accept':'application/json'})
             selen_res = r.json()
@@ -85,27 +90,22 @@ class ObjReqClass:
         except Exception as err:
             return 'An error occurred : ' + str(err)
 
-    def __swjs_check(self,apikey,sw_url):
+    def __swjs_check(self,apikey,sw_url,dc):
         try:
-            api_url = 'https://cdn.xxx.com/%s/sw.js' % apikey
-            resp = requests.get(sw_url,timeout=5)
-            sw_js = resp.text
-
-            if resp.status_code == 200:
-                if api_url in sw_js:
-                    return ('Success');
-                elif 'https://cdn.xxx.com/v3/push/sw.js' in sw_js:
-                    return ('Success')
-                else:
-                    return ('Failed, sw.js does not pointing to cdn.xxx.com')
+            if dc == 'pk':
+                selen_sw = "http://192.168.0.0:8000/selenium/sw"
+            elif dc == 'gc':
+                selen_sw = "http://10.154.0.0:8000/selenium/sw"
             else:
-                return ('Failed, sw.js does not exists')
+                selen_sw = "http://10.156.0.0:8000/selenium/sw"
+            data = {'apikey': apikey, 'sw_url': sw_url}
+            r = requests.post(url=selen_sw, json=data, headers={'Content-type':'application/json', 'Accept':'application/json'})
+            selen_sw_res = r.json()
+            return selen_sw_res
         except HTTPError as http_err:
-            return 'Failed ,' + str(http_err)
-        except Timeout as err:
-            return 'Failed , %s has timed out' % sw_url
+            return 'An error occured : ' + str(http_err)
         except Exception as err:
-            return 'Failed ,' + str(err)
+            return 'An error occurred : ' + str(err)
 
     def on_get(self,req,resp):
         resp.status = falcon.HTTP_405
@@ -117,10 +117,6 @@ class ObjReqClass:
     def on_post(self,req,resp):
         resp.status = falcon.HTTP_200
         validated = self.__validate_json_input(req)
-        global req_count
-
-        if req_count == 3:
-            req_count = 0
             
         if(validated == True):
             if 'account_id' in self.__json_content:
@@ -136,7 +132,6 @@ class ObjReqClass:
                             'msg': '%s does not exists' % account_id
                         }
                     else:
-                        req_count += 1
                         purl = tldextract.extract(qacc[1])
                         if purl[0] == '':
                             url = 'https://www.%s.%s' % (purl[1],purl[2])
@@ -170,7 +165,7 @@ class ObjReqClass:
                                     print(err)
                             break
 
-                        selen_test = self.__selenium(account_id,qacc[0],url)
+                        selen_test = self.__selenium(account_id,qacc[0],url,qacc[4])
 
                         if 'An error occurred' in selen_test:
                             output = {
@@ -179,10 +174,12 @@ class ObjReqClass:
                             }
                         else:
                             if qacc[3] == "ACTIVE":
-                                sw_url = '%s/sw.js' % url
-                                swjs = self.__swjs_check(qacc[0],sw_url)
+                                sw_url = qacc[5]
+                                swjs_resp = self.__swjs_check(qacc[0],sw_url,qacc[4])
+                                swjs = swjs_resp['status']
                             else:
                                 swjs = 'none'
+                                sw_url = 'none'
 
                             if 'notification' in self.__json_content:
                                 try:
@@ -196,7 +193,7 @@ class ObjReqClass:
                                 if 'Failed' in selen_test['js'] or 'Failed' in swjs:
                                     send_slack_msg(account_id,qacc[0],selen_test['url'],qacc[2],selen_test['js'],swjs)
 
-                        output = {'account_id' : account_id,'apikey' : qacc[0],'url' : selen_test['url'],'rdr_url' : selen_test['rdr_url'],'type' : qacc[2],'js' : selen_test['js'],'sw' : swjs,'date': selen_test['date']}
+                        output = {'account_id':account_id,'apikey':qacc[0],'url':selen_test['url'],'type':qacc[2],'js':selen_test['js'],'sw':swjs,'sw_url':sw_url,'date':selen_test['date']}
                 except ValueError:
                     output = {
                         'status' : 'Failed',
