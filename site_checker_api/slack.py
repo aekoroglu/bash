@@ -5,7 +5,7 @@ import json
 import time
 
 def send_slack_msg(account_id,apikey,url,acc_type,acc_js,swjs):
-    wekbook_url = 'https://hooks.slack.com/services/xxxxxxx'
+    webhook_url = 'https://hooks.slack.com/services/xxxxxxx'
     now = time.time()
 
     data = {'attachments': [
@@ -24,4 +24,4 @@ def send_slack_msg(account_id,apikey,url,acc_type,acc_js,swjs):
         ]
     }
 
-    response = requests.post(wekbook_url, data=json.dumps(data), headers={'Content-Type': 'application/json'})
+    response = requests.post(webhook_url, data=json.dumps(data), headers={'Content-Type': 'application/json'})
